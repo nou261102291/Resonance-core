@@ -1,0 +1,25 @@
+{
+  "name": "resonance-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autonomous CI/CD self-healing orchestrator",
+  "scripts": {
+    "dev": "pnpm --filter=@resonance/api dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md,yml,yaml}\"",
+    "clean": "pnpm -r run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "prettier": "^3.1.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "pnpm@8.14.0"
+}

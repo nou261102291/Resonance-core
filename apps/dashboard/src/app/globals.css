@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+body {
+  @apply bg-resonance-bg text-resonance-text antialiased;
+  margin: 0;
+  padding: 0;
+}
+
+::selection {
+  @apply bg-resonance-accent/30 text-resonance-text;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-resonance-bg;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-resonance-border rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-resonance-textMuted;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  @keyframes glow {
+    0%, 100% {
+      box-shadow: 0 0 5px theme('colors.resonance.accent');
+    }
+    50% {
+      box-shadow: 0 0 20px theme('colors.resonance.accent'), 0 0 30px theme('colors.resonance.accent');
+    }
+  }
+  
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite;
+  }
+}

@@ -1,0 +1,121 @@
+# .github/workflows/build.yml
+# This workflow intentionally fails on the deliberate bugs for demo purposes
+
+name: Build and Type Check
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+env:
+  NODE_VERSION: '20.x'
+
+jobs:
+  typecheck:
+    name: TypeScript Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript type check
+        run: npx tsc --noEmit
+        # This will fail on auth.ts due to missing optional chaining
+        # Error: Property 'id' does not exist on type 'User | undefined'
+
+  lint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npx eslint src --ext .ts,.tsx
+        # This will pass (no linting errors in our demo)
+
+  prisma-validate:
+    name: Prisma Schema Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+        # This will fail on schema.prisma due to enum migration issue
+        # Error: The enum 'UserRole' is not supported by the current provider
+
+      - name: Validate Prisma Schema
+        run: npx prisma validate
+        # This will also fail on the enum issue
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test --if-present
+        # This will pass (no tests in demo)
+
+  # This job simulates the Resonance Core webhook trigger
+  # In reality, Resonance Core would be triggered by the failure of any above job
+  resonance-trigger:
+    name: Resonance Core Trigger (Simulation)
+    runs-on: ubuntu-latest
+    needs: [typecheck, lint, prisma-validate, test]
+    if: failure()
+    steps:
+      - name: Simulate Resonance Core webhook
+        run: |
+          echo "🚨 Pipeline failure detected!"
+          echo "Resonance Core would now:"
+          echo "  1. Receive webhook with failure context"
+          echo "  2. Sanitize logs"
+          echo "  3. Run Nemotron Nano triage"
+          echo "  4. Query Tavily for fixes"
+          echo "  5. Run Nemotron Ultra synthesis"
+          echo "  6. Create PR per tier policy"
+          echo ""
+          echo "For demo: Check the Resonance Core dashboard for live status"

@@ -1,0 +1,73 @@
+// src/database/schema.prisma
+// DELIBERATE BUG: Type mismatch after Prisma version upgrade
+// This simulates a Tier 1 (Guardian) fix - high-risk, requires human judgment
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String    @map("password_hash")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  posts         Post[]
+  profile       Profile?
+
+  @@map("users")
+}
+
+model Profile {
+  id        String   @id @default(cuid())
+  userId    String   @unique @map("user_id")
+  bio       String?
+  avatarUrl String?  @map("avatar_url")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  title     String
+  content   String?
+  published Boolean  @default(false)
+  authorId  String   @map("author_id")
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("posts")
+}
+
+// BUG: After Prisma 5.0 upgrade, the following enum migration is required
+// but the migration strategy needs human decision:
+// - Should we use native PostgreSQL enums?
+// - Should we keep as String with check constraints?
+// - How to handle existing data?
+
+enum UserRole {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+// This model has a breaking change that requires migration strategy
+model UserWithRole {
+  id    String    @id @default(cuid())
+  email String    @unique
+  role  UserRole  @default(USER)
+  // BUG: Adding this enum field to existing table requires careful migration
+  // The fix depends on:
+  // 1. Current data state
+  // 2. Downtime tolerance
+  // 3. Rollback plan
+  // This is a Tier 1 issue - must have human review
+}
