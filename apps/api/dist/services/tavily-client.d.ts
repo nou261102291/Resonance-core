@@ -1,4 +1,4 @@
-import { ResearchContext } from '@resonance/shared/schemas';
+import { type ResearchContext } from '@resonance/shared/schemas';
 /**
  * Tavily Search API client for version-specific technical research
  */
@@ -13,6 +13,9 @@ export declare class TavilyClient {
      * Search with fallback for when primary search fails
      */
     searchWithFallback(query: string): Promise<ResearchContext>;
+    private validateQuery;
+    private createResearchContext;
+    private isAllowedSource;
     /**
      * Extract source domain from URL
      */

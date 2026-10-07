@@ -28,7 +28,7 @@ export class PipelineOrchestrator {
             log.info({ requestId }, 'Step 1: Running triage with Nemotron Nano');
             const triage = await this.runTriage(failureContext);
             // Step 2: Research with Tavily
-            log.info({ requestId, query: triage.tavily_query }, 'Step 2: Researching with Tavily');
+            log.info({ requestId }, 'Step 2: Researching with Tavily');
             const research = await this.runResearch(triage);
             // Step 3: Synthesis with Nemotron 3 Ultra
             log.info({ requestId }, 'Step 3: Synthesizing fix with Nemotron 3 Ultra');
@@ -102,12 +102,11 @@ export class PipelineOrchestrator {
                 githubClient.getFileContent(octokit, failureContext.repository.owner, failureContext.repository.name, 'tsconfig.json', defaultBranch),
             ]);
             if (pkgContent.status === 'fulfilled' && pkgContent.value) {
-                repositoryContext.packageJson = pkgContent.value;
+                repositoryContext.packageJson = sanitizeErrorLog(pkgContent.value);
             }
             if (tsconfigContent.status === 'fulfilled' && tsconfigContent.value) {
-                repositoryContext.tsconfig = tsconfigContent.value;
+                repositoryContext.tsconfig = sanitizeErrorLog(tsconfigContent.value);
             }
-            repositoryContext.primaryLanguage = 'typescript';
         }
         catch (error) {
             log.warn({ err: error }, 'Could not fetch repository context');
@@ -126,6 +125,9 @@ export class PipelineOrchestrator {
      * Run synthesis with Nemotron 3 Ultra
      */
     async runSynthesis(failureContext, triage, research) {
+        if (research.snippets.length === 0) {
+            throw new Error('Research produced no usable sources; synthesis skipped');
+        }
         // Get original file content for context
         let originalFileContent;
         try {
@@ -133,7 +135,7 @@ export class PipelineOrchestrator {
             const defaultBranch = await githubClient.getDefaultBranch(octokit, failureContext.repository.owner, failureContext.repository.name);
             const fileContent = await githubClient.getFileContent(octokit, failureContext.repository.owner, failureContext.repository.name, triage.affected_file, defaultBranch);
             if (fileContent) {
-                originalFileContent = fileContent;
+                originalFileContent = sanitizeErrorLog(fileContent.slice(0, 50000));
             }
         }
         catch (error) {

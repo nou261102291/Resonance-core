@@ -5,7 +5,7 @@ import { z } from "zod";
  */
 export declare const TriageOutputSchema: z.ZodObject<{
     error_signature: z.ZodString;
-    affected_file: z.ZodString;
+    affected_file: z.ZodEffects<z.ZodString, string, string>;
     library_version: z.ZodOptional<z.ZodString>;
     risk_score: z.ZodNumber;
     confidence_score: z.ZodNumber;

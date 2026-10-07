@@ -1,5 +1,5 @@
-import { TriageOutput } from '@resonance/shared/schemas';
-import { SynthesisOutput } from '@resonance/shared/schemas';
+import { type TriageOutput } from '@resonance/shared/schemas';
+import { type SynthesisInput, type SynthesisOutput } from '@resonance/shared/schemas';
 type TokenUsage = {
     prompt_tokens: number;
     completion_tokens: number;
@@ -30,13 +30,7 @@ export declare class NebiusClient {
      * Run synthesis with Nemotron 3 Ultra
      * Generates a unified diff patch from error context and research
      */
-    runSynthesis(errorLog: string, triageData: TriageOutput, researchSnippets: Array<{
-        source: string;
-        title: string;
-        url: string;
-        relevant_content: string;
-        confidence: number;
-    }>, originalFileContent?: string): Promise<SynthesisOutput>;
+    runSynthesis(errorLog: string, triageData: TriageOutput, researchSnippets: SynthesisInput['research']['snippets'], originalFileContent?: string): Promise<SynthesisOutput>;
     /**
      * Build system prompt for Nemotron Nano triage
      */
@@ -53,10 +47,7 @@ export declare class NebiusClient {
      * Build user prompt for synthesis
      */
     private buildSynthesisUserPrompt;
-    /**
-     * Parse synthesis response from markdown
-     */
-    private parseSynthesisResponse;
+    private summarizePatch;
     /**
      * Calculate cost for a model call
      */

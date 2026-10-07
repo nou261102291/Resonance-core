@@ -17,11 +17,11 @@ This document defines a phased implementation plan for **Resonance Core**, an au
 | **Phase 1.5** | ✅ **COMPLETED** | Config & Documentation | `.env.example`, `README.md`, `config/default-config.yml` |
 | **Phase 2** | ✅ **COMPLETED** | Product Architecture & Trust Model | Architecture diagram, autonomy policy, security/data-handling docs |
 | **Phase 3** | 🔄 **IN PROGRESS** | Webhook Ingestion & Sanitization | Secure ingress, event-specific validation, sanitization, and routing implemented; durable audit retention and live Actions log retrieval remain |
-| **Phase 4** | 🔄 **IN PROGRESS** | Triage, Research & Fix Synthesis | Provider clients and orchestration exist; provider-backed end-to-end coverage remains |
+| **Phase 4** | 🔄 **IN PROGRESS** | Triage, Research & Fix Synthesis | Structured triage, validated research, and schema-checked single-file patch synthesis implemented; live-provider and patch-application verification remain |
 | **Phase 5** | 🔄 **IN PROGRESS** | Autonomy Routing & Git Integration | Tier routing and GitHub App actions exist; robust patch application and verified promotion remain |
 | **Phase 6** | 🔄 **IN PROGRESS** | Verification, Testing & Rollback Safety | Unit and webhook tests exist; candidate validation and rollback handling remain |
 | **Phase 7** | 🔄 **IN PROGRESS** | Dashboard & Developer Experience | Standalone dashboard demo exists; live API state and PR workflow integration remain |
-| **Phase 8** | ⏳ **PENDING** | Production Readiness & Demo Delivery | Deployment config, demo video, submission package |
+| **Phase 8** | ⏳ **PENDING** | Production Readiness & Demo Delivery | Multi-tenant security, repository-data lifecycle, isolated execution, operations, and launch gates |
 
 ---
 
@@ -205,25 +205,29 @@ Implement the first production-critical path: receiving failures safely.
 
 Build the agentic core that turns failure into a candidate fix.
 
-### 4.1 Nano triage step
-1. Use Nemotron Nano to classify the error.
-2. Extract the likely file, failure mode, and risk level.
-3. Produce strict structured JSON, not free-form text.
+### 4.1 Nano triage step ✅ **IMPLEMENTED**
+1. ✅ Use Nemotron Nano to classify the sanitized failure and bounded repository context.
+2. ✅ Extract the likely file, failure mode, and risk level; reject absolute or traversing file paths.
+3. ✅ Require JSON output and validate it against `TriageOutputSchema` before routing. Failure logs and repository files are framed as untrusted data, not instructions.
 
-### 4.2 Tavily research step
-1. Query Tavily using the triage output.
-2. Prefer recent, version-aware, high-signal results.
-3. Keep the research context small and relevant.
+### 4.2 Tavily research step ✅ **IMPLEMENTED**
+1. ✅ Validate and bound the Tavily query derived from triage.
+2. ✅ Validate provider responses, enforce configured source domains, require HTTPS, and rank results by score.
+3. ✅ Limit result count and snippet size; use basic-search fallback and fail the research stage if both provider attempts fail.
 
-### 4.3 Ultra synthesis step
-1. Use Nemotron Ultra only after triage and research complete.
-2. Generate a minimal patch with a short explanation.
-3. Avoid unrelated refactors or broad code changes.
+**Validation completed:** Workspace tests pass (21 API tests and 3 shared-schema tests); workspace typechecks and lint pass. Provider calls are mocked in tests; live Nebius and Tavily integration remains unverified.
+
+### 4.3 Ultra synthesis step ✅ **IMPLEMENTED**
+1. ✅ Run Nemotron Ultra only after triage and a research result with at least one usable source.
+2. ✅ Request structured JSON containing root cause, fix explanation, confidence, and a unified diff; reject malformed or incomplete output instead of filling defaults.
+3. ✅ Require one diff for the triaged file, derive changed-file and line-count metadata from the patch, and frame logs, source material, and repository content as untrusted input.
 
 ### 4.4 Output of this phase
-1. Structured failure metadata.
-2. External research context.
-3. Patch candidate and explanation.
+1. ✅ Schema-validated failure metadata from Nano.
+2. ✅ Bounded, domain-filtered Tavily research context.
+3. ✅ A validated single-file patch candidate with root cause, explanation, confidence, and derived change metadata.
+
+**Validation completed:** API tests pass (25 tests) and shared-schema tests pass (3 tests); workspace typecheck, lint, and build pass. Nebius and Tavily are mocked in tests. Applying and verifying the patch against a real repository remains out of scope for this phase and is tracked in Phases 5–6.
 
 ---
 
@@ -261,6 +265,8 @@ Make the system trustworthy before polishing the UI.
 1. Re-run the impacted build or test command after patch generation.
 2. Fail the workflow if the fix does not improve the original error.
 3. Escalate to human review if confidence is low or validation fails.
+4. Execute repository-controlled install, build, and test commands only in the isolated runner defined by Phase 8; never execute customer code in the API or dashboard process.
+5. Pass only bounded, sanitized result summaries back to the orchestrator; do not return runner credentials, environment variables, or unrestricted artifacts.
 
 ### 6.2 Testing strategy
 1. Unit test sanitization, triage parsing, routing, and PR composition.
@@ -271,6 +277,7 @@ Make the system trustworthy before polishing the UI.
 1. Never auto-merge without policy checks.
 2. Preserve failed state and logs for debugging.
 3. Close or mark PRs stale when validation invalidates the proposed fix.
+4. Terminate and destroy the isolated runner and its working storage after each job, including on timeout, cancellation, and failure.
 
 ### 6.4 Output of this phase
 1. Confidence that fixes are repeatable.
@@ -310,28 +317,47 @@ Design the operator experience around trust, clarity, and speed.
 
 Finish with deployment discipline and a polished submission path.
 
-### 8.1 Production readiness
-1. Add structured logging and traceability.
-2. Set up environment-specific config for dev, staging, and production.
-3. Define alerting for webhook failures, model errors, and Git provider failures.
-4. Document rate limits, retry behavior, and operational ownership.
+### 8.1 Tenant isolation and repository access
+1. Resolve the tenant from the authenticated GitHub App installation; never trust a tenant or repository identity supplied only in a request body.
+2. Enforce installation-scoped authorization on every repository read, write, job, audit record, and dashboard query. Add automated cross-tenant access tests.
+3. Request the minimum GitHub App permissions needed for the enabled workflow. Document each permission, require explicit installation, and immediately deny access after uninstall or permission revocation.
+4. Add per-tenant webhook rate limits, concurrency limits, cost budgets, and abuse controls. Make delivery handling idempotent and reject replayed or stale deliveries.
 
-### 8.2 Deployment posture
-1. Ship the hackathon version as a SaaS backend with repo installation.
-2. Keep a clear path for enterprise self-hosting or VPC deployment.
-3. Separate demo mode from real operating mode.
+### 8.2 Repository data lifecycle and privacy
+1. Maintain a data inventory covering webhook payloads, logs, repository files, model prompts/responses, patches, audit records, and runner artifacts.
+2. Minimize collected data and redact secrets before logs or model calls. Do not place raw payloads, credentials, or unredacted logs in ordinary application logs.
+3. Encrypt tenant data in transit and at rest, keep tenant ownership explicit in storage boundaries, and restrict operator access with audited break-glass procedures.
+4. Define configurable retention periods and deletion behavior for every stored data class. Test deletion on uninstall and customer request, including backups, caches, generated patches, and vendor-held data where supported.
+5. Document which external providers receive data, their retention/training settings, and the customer-visible controls for opting out or limiting data sharing.
 
-### 8.3 Demo package
-1. Prepare the deliberate failure repo.
-2. Record the 8-second Shadow Mode sequence.
-3. Include architecture, trust model, and ROI in the submission.
+### 8.3 Isolated execution of untrusted repositories
+1. Run dependency installation, build, and test commands in a disposable, per-job sandbox separated from the API and other tenants; use a hardened container or microVM with a non-root identity and restrictive syscall/filesystem controls.
+2. Do not mount host paths, container-runtime sockets, cloud credentials, GitHub installation tokens, signing keys, or production secrets into the runner. Use narrowly scoped, short-lived credentials only when a documented validation step requires them.
+3. Deny network egress by default. Allow only explicitly required destinations through controlled policy/proxy, and block access to metadata services, internal networks, and other tenant resources.
+4. Enforce CPU, memory, disk, process-count, output-size, and wall-clock limits. Support cancellation and guaranteed cleanup after success, failure, or timeout.
+5. Treat repository scripts, dependency lifecycle hooks, test output, and generated artifacts as hostile input. Sanitize bounded results before they return to the orchestrator or model providers.
+6. Exercise the runner with malicious repositories and escape, resource-exhaustion, credential-access, and network-access tests before enabling customer repository execution.
 
-### 8.4 Final acceptance criteria
-1. A failure triggers the system automatically.
-2. The agent triages, researches, and proposes a fix.
-3. The system routes to the correct trust tier.
-4. The engineer can review, approve, or let the policy automate the action.
-5. The demo is polished enough to show without narration.
+### 8.4 Production operations and deployment
+1. Separate development, staging, and production accounts, data, credentials, and provider applications; manage secrets through a production secret manager with rotation procedures.
+2. Add structured redacted audit events, service health monitoring, alerts, SLOs, incident response, backup/restore, disaster-recovery, and capacity plans.
+3. Document provider rate limits, retry/backoff behavior, queueing, idempotency, per-tenant quotas, cost controls, and operational ownership.
+4. Complete threat modeling, dependency and image scanning, security review, and an independent penetration test before general availability.
+5. Keep demo mode isolated from live customer installations. Ship as SaaS only after the gates in 8.6 pass; maintain a documented self-hosted/VPC path without weakening isolation defaults.
+
+### 8.5 Demo package
+1. Prepare the deliberate failure repository and run it only in the isolated test environment.
+2. Record the 8-second Shadow Mode sequence using a non-production installation and synthetic data.
+3. Include architecture, trust model, data-handling boundaries, and ROI in the submission.
+
+### 8.6 Production launch acceptance criteria
+1. A staging installation receives signed events, processes duplicate deliveries idempotently, and rejects revoked or out-of-scope repository access.
+2. Automated authorization tests demonstrate that one tenant cannot read, mutate, or observe another tenant's repositories, jobs, logs, patches, audit events, or dashboard state.
+3. Retention and deletion tests verify removal across primary storage, caches, generated artifacts, and documented backup/vendor retention windows.
+4. Adversarial runner tests verify isolation, denied egress, resource limits, cancellation, cleanup, and absence of production credentials.
+5. A controlled end-to-end staging run produces a validated patch and reviewable PR; candidate changes are verified, and automatic merge/promotion remains disabled until separately approved by Phase 6 gates.
+6. Operational readiness is demonstrated through alert tests, restore exercises, incident ownership, and tenant-specific rate/cost limit tests.
+7. Production access is not enabled while any of the above acceptance criteria are unmet.
 
 ---
 

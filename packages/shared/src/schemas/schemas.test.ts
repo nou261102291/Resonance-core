@@ -31,3 +31,21 @@ describe('FailureContextSchema', () => {
     expect(parsed.success).toBe(false);
   });
 });
+
+describe('TriageOutputSchema', () => {
+  it('rejects absolute and traversing affected file paths', async () => {
+    const { TriageOutputSchema } = await import('./triage.js');
+    const output = {
+      error_signature: 'Build failed',
+      affected_file: '../outside.ts',
+      risk_score: 3,
+      confidence_score: 9,
+      change_scope_estimate: 'minor',
+      recommended_tier: 'Tier 3: Autopilot',
+      tavily_query: 'TypeScript build failure',
+    };
+
+    expect(TriageOutputSchema.safeParse(output).success).toBe(false);
+    expect(TriageOutputSchema.safeParse({ ...output, affected_file: '/etc/passwd' }).success).toBe(false);
+  });
+});

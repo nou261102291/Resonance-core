@@ -367,7 +367,7 @@ export declare const FixPackageSchema: z.ZodObject<{
     }>;
     triage: z.ZodObject<{
         error_signature: z.ZodString;
-        affected_file: z.ZodString;
+        affected_file: z.ZodEffects<z.ZodString, string, string>;
         library_version: z.ZodOptional<z.ZodString>;
         risk_score: z.ZodNumber;
         confidence_score: z.ZodNumber;
@@ -404,10 +404,13 @@ export declare const FixPackageSchema: z.ZodObject<{
     }>;
     synthesis: z.ZodObject<{
         root_cause: z.ZodString;
-        patch: z.ZodString;
+        patch: z.ZodEffects<z.ZodString, string, string>;
         fix_explanation: z.ZodString;
         fix_confidence: z.ZodNumber;
-        files_changed: z.ZodArray<z.ZodString, "many">;
+        alternatives_considered: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+        warnings: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    } & {
+        files_changed: z.ZodArray<z.ZodEffects<z.ZodString, string, string>, "many">;
         lines_changed: z.ZodNumber;
         token_usage: z.ZodObject<{
             prompt_tokens: z.ZodNumber;
@@ -422,9 +425,7 @@ export declare const FixPackageSchema: z.ZodObject<{
             completion_tokens: number;
             total_tokens: number;
         }>;
-        alternatives_considered: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-        warnings: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-    }, "strip", z.ZodTypeAny, {
+    }, "strict", z.ZodTypeAny, {
         root_cause: string;
         patch: string;
         fix_explanation: string;

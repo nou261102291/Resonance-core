@@ -10,7 +10,15 @@ import { z } from "zod";
 export const TriageOutputSchema = z.object({
   // Core error identification
   error_signature: z.string().min(1).max(500).describe("Concise error signature, e.g., 'TypeError: Cannot read properties of undefined'"),
-  affected_file: z.string().min(1).max(500).describe("Relative path to the file containing the error"),
+  affected_file: z.string().min(1).max(500)
+    .refine((path) => {
+      const normalizedPath = path.replace(/\\/g, '/');
+      return !path.includes('\0') &&
+        !normalizedPath.startsWith('/') &&
+        !/^[a-z]:/i.test(path) &&
+        !normalizedPath.split('/').includes('..');
+    }, 'Affected file must be a relative repository path without traversal segments')
+    .describe("Relative path to the file containing the error"),
   library_version: z.string().max(200).optional().describe("Library name and version if identifiable, e.g., 'next-auth@4.22.1'"),
 
   // Risk assessment (1-10 scale)
@@ -40,9 +48,9 @@ export type TriageOutput = z.infer<typeof TriageOutputSchema>;
 export const TriageInputSchema = z.object({
   error_log: z.string().min(1).max(50000),
   repository_context: z.object({
-    primary_language: z.string().optional(),
-    package_json: z.string().optional(),
-    tsconfig: z.string().optional(),
+    primary_language: z.string().max(100).optional(),
+    package_json: z.string().max(20000).optional(),
+    tsconfig: z.string().max(20000).optional(),
   }).optional(),
 });
 
