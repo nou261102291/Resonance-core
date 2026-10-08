@@ -1,0 +1,2 @@
+export declare function verifyVerificationSignature(payload: Buffer, timestampHeader: string, signatureHeader: string, secret: string, nowMs?: number, toleranceSeconds?: number): boolean;
+//# sourceMappingURL=verification-signature.d.ts.map

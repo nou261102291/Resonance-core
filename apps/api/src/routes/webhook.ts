@@ -183,6 +183,7 @@ export const webhookRoutes: FastifyPluginAsync = async (server) => {
       action: result.githubResult?.action,
       prUrl: result.githubResult?.prUrl,
       prNumber: result.githubResult?.prNumber,
+      candidateSha: result.githubResult?.candidateSha,
       durationMs: result.durationMs,
     });
   });
@@ -205,10 +206,11 @@ async function extractFailureContext(
       return null;
     }
 
-    const errorLog = await fetchLogs(run.logs_url, installationId, requestLog);
+    const errorLog = await fetchLogs(run.logs_url, installationId, p.repository.id, requestLog);
 
     return {
       repository: {
+        id: p.repository.id,
         owner: p.repository.owner.login,
         name: p.repository.name,
         fullName: p.repository.full_name,
@@ -245,6 +247,7 @@ async function extractFailureContext(
 
     return {
       repository: {
+        id: p.repository.id,
         owner: p.repository.owner.login,
         name: p.repository.name,
         fullName: p.repository.full_name,
@@ -280,6 +283,7 @@ async function extractFailureContext(
 async function fetchLogs(
   logsUrl: string,
   installationId: number,
+  repositoryId: number,
   requestLog: ReturnType<typeof createRequestLogger>,
 ): Promise<string | null> {
   try {
@@ -292,7 +296,7 @@ async function fetchLogs(
       return null;
     }
 
-    const octokit = await githubClient.getInstallationOctokit(installationId);
+    const octokit = await githubClient.getInstallationOctokit(installationId, repositoryId);
     const { data } = await octokit.request(`GET ${parsedLogsUrl.pathname}`, {
       headers: { accept: 'application/octet-stream' },
     });

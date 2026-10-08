@@ -154,6 +154,7 @@ export const webhookRoutes = async (server) => {
             action: result.githubResult?.action,
             prUrl: result.githubResult?.prUrl,
             prNumber: result.githubResult?.prNumber,
+            candidateSha: result.githubResult?.candidateSha,
             durationMs: result.durationMs,
         });
     });
@@ -168,9 +169,10 @@ async function extractFailureContext(payload, event, installationId, requestLog)
         if (run.conclusion !== 'failure') {
             return null;
         }
-        const errorLog = await fetchLogs(run.logs_url, installationId, requestLog);
+        const errorLog = await fetchLogs(run.logs_url, installationId, p.repository.id, requestLog);
         return {
             repository: {
+                id: p.repository.id,
                 owner: p.repository.owner.login,
                 name: p.repository.name,
                 fullName: p.repository.full_name,
@@ -204,6 +206,7 @@ async function extractFailureContext(payload, event, installationId, requestLog)
         const errorLog = checkRun.output?.summary ?? 'Check run failed';
         return {
             repository: {
+                id: p.repository.id,
                 owner: p.repository.owner.login,
                 name: p.repository.name,
                 fullName: p.repository.full_name,
@@ -234,7 +237,7 @@ async function extractFailureContext(payload, event, installationId, requestLog)
  * Fetch logs from GitHub Actions using the installation token.
  * Returns the raw log content as a UTF‑8 string or null on failure.
  */
-async function fetchLogs(logsUrl, installationId, requestLog) {
+async function fetchLogs(logsUrl, installationId, repositoryId, requestLog) {
     try {
         const parsedLogsUrl = new URL(logsUrl);
         if (parsedLogsUrl.origin !== 'https://api.github.com' ||
@@ -242,7 +245,7 @@ async function fetchLogs(logsUrl, installationId, requestLog) {
             requestLog.warn('Rejected unexpected workflow logs URL');
             return null;
         }
-        const octokit = await githubClient.getInstallationOctokit(installationId);
+        const octokit = await githubClient.getInstallationOctokit(installationId, repositoryId);
         const { data } = await octokit.request(`GET ${parsedLogsUrl.pathname}`, {
             headers: { accept: 'application/octet-stream' },
         });

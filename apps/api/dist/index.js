@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import { webhookRoutes } from './routes/webhook.js';
 import { healthRoutes } from './routes/health.js';
+import { verificationRoutes } from './routes/verification.js';
 import { config } from './utils/config.js';
 import { logger } from './utils/logger.js';
 async function buildServer() {
@@ -23,6 +24,7 @@ async function buildServer() {
     // Register routes
     await server.register(healthRoutes, { prefix: '/health' });
     await server.register(webhookRoutes, { prefix: '/webhook' });
+    await server.register(verificationRoutes, { prefix: '/verification' });
     // Global error handler
     server.setErrorHandler((error, request, reply) => {
         request.log.error({ err: error }, 'Unhandled error');

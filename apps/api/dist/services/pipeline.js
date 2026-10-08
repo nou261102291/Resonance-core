@@ -26,19 +26,25 @@ export class PipelineOrchestrator {
         try {
             // Step 1: Triage with Nemotron Nano
             log.info({ requestId }, 'Step 1: Running triage with Nemotron Nano');
-            const triage = await this.runTriage(failureContext);
+            const triage = await this.runTriage(failureContext, installationId, requestId);
             // Step 2: Research with Tavily
             log.info({ requestId }, 'Step 2: Researching with Tavily');
             const research = await this.runResearch(triage);
             // Step 3: Synthesis with Nemotron 3 Ultra
             log.info({ requestId }, 'Step 3: Synthesizing fix with Nemotron 3 Ultra');
-            const synthesis = await this.runSynthesis(failureContext, triage, research);
+            const synthesis = await this.runSynthesis(failureContext, triage, research, installationId, requestId);
             // Step 4: Determine autonomy tier and build decision
             log.info({ requestId }, 'Step 4: Determining autonomy tier');
             const tier = autonomyRouter.determineTier(triage);
             const decision = autonomyRouter.buildDecision(triage, tier);
             // Step 5: Calculate cost receipt
-            const costReceipt = autonomyRouter.calculateCostReceipt(triage._tokenUsage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, synthesis.token_usage);
+            const costReceipt = autonomyRouter.calculateCostReceipt(triage._tokenUsage, synthesis.token_usage);
+            log.info({
+                requestId,
+                totalCostUsd: costReceipt.total_cost_usd,
+                triageTokens: triage._tokenUsage.total_tokens,
+                synthesisTokens: synthesis.token_usage.total_tokens,
+            }, 'Model cost receipt calculated');
             // Step 6: Build fix package
             const fixPackage = {
                 repository: {
@@ -56,7 +62,7 @@ export class PipelineOrchestrator {
             };
             // Step 7: Execute GitHub action based on tier
             log.info({ requestId, tier: decision.tier, action: decision.action }, 'Step 5: Executing GitHub action');
-            const githubResult = await autonomyRouter.executeFix(fixPackage, installationId);
+            const githubResult = await autonomyRouter.executeFix(fixPackage, installationId, failureContext.repository.id);
             const durationMs = Date.now() - startTime;
             log.info({
                 requestId,
@@ -90,11 +96,11 @@ export class PipelineOrchestrator {
     /**
      * Run triage with Nemotron Nano
      */
-    async runTriage(failureContext) {
+    async runTriage(failureContext, installationId, requestId) {
         // Get original file content if possible (for context)
         const repositoryContext = {};
         try {
-            const octokit = await githubClient.getInstallationOctokit(failureContext.repository.installationId ?? 0);
+            const octokit = await githubClient.getInstallationOctokit(installationId, failureContext.repository.id);
             const defaultBranch = await githubClient.getDefaultBranch(octokit, failureContext.repository.owner, failureContext.repository.name);
             // Try to get package.json and tsconfig for context
             const [pkgContent, tsconfigContent] = await Promise.allSettled([
@@ -113,7 +119,7 @@ export class PipelineOrchestrator {
         }
         // Sanitize error log before sending to LLM
         const sanitizedErrorLog = sanitizeErrorLog(failureContext.failure.errorLog);
-        return nebiusClient.runTriage(sanitizedErrorLog, repositoryContext);
+        return nebiusClient.runTriage(sanitizedErrorLog, repositoryContext, requestId);
     }
     /**
      * Run research with Tavily
@@ -124,14 +130,14 @@ export class PipelineOrchestrator {
     /**
      * Run synthesis with Nemotron 3 Ultra
      */
-    async runSynthesis(failureContext, triage, research) {
+    async runSynthesis(failureContext, triage, research, installationId, requestId) {
         if (research.snippets.length === 0) {
             throw new Error('Research produced no usable sources; synthesis skipped');
         }
         // Get original file content for context
         let originalFileContent;
         try {
-            const octokit = await githubClient.getInstallationOctokit(failureContext.repository.installationId ?? 0);
+            const octokit = await githubClient.getInstallationOctokit(installationId, failureContext.repository.id);
             const defaultBranch = await githubClient.getDefaultBranch(octokit, failureContext.repository.owner, failureContext.repository.name);
             const fileContent = await githubClient.getFileContent(octokit, failureContext.repository.owner, failureContext.repository.name, triage.affected_file, defaultBranch);
             if (fileContent) {
@@ -143,7 +149,7 @@ export class PipelineOrchestrator {
         }
         // Sanitize error log
         const sanitizedErrorLog = sanitizeErrorLog(failureContext.failure.errorLog);
-        return nebiusClient.runSynthesis(sanitizedErrorLog, triage, research.snippets, originalFileContent);
+        return nebiusClient.runSynthesis(sanitizedErrorLog, triage, research.snippets, originalFileContent, requestId);
     }
     /**
      * Health check for all pipeline dependencies

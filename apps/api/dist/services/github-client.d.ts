@@ -10,11 +10,11 @@ export declare class GitHubClient {
     /**
      * Get installation token for a repository
      */
-    getInstallationToken(installationId: number): Promise<string>;
+    getInstallationToken(installationId: number, repositoryId: number): Promise<string>;
     /**
      * Get Octokit client authenticated for a specific installation
      */
-    getInstallationOctokit(installationId: number): Promise<Octokit>;
+    getInstallationOctokit(installationId: number, repositoryId: number): Promise<Octokit>;
     /**
      * Create a new branch from a base commit
      */
@@ -51,6 +51,22 @@ export declare class GitHubClient {
      * Get the latest commit SHA for a branch
      */
     getBranchHeadSha(octokit: Octokit, owner: string, repo: string, branch: string): Promise<string>;
+    getCommitTreeSha(octokit: Octokit, owner: string, repo: string, commitSha: string): Promise<string>;
+    createCommitStatus(octokit: Octokit, options: {
+        owner: string;
+        repo: string;
+        sha: string;
+        state: 'error' | 'failure' | 'pending' | 'success';
+        description: string;
+        context: string;
+        target_url?: string;
+    }): Promise<void>;
+    getPullRequestSnapshot(octokit: Octokit, owner: string, repo: string, pullNumber: number): Promise<{
+        headSha: string;
+        state: 'open' | 'closed';
+    }>;
+    getCommitStatusState(octokit: Octokit, owner: string, repo: string, sha: string, context: string): Promise<'error' | 'failure' | 'pending' | 'success' | undefined>;
+    closePullRequest(octokit: Octokit, owner: string, repo: string, pullNumber: number): Promise<void>;
     /**
      * Check if a branch exists
      */

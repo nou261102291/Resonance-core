@@ -28,10 +28,30 @@ export const CostReceiptSchema = z.object({
     cost_usd: z.number().min(0),
   }),
   total_cost_usd: z.number().min(0),
-  estimated_human_minutes_saved: z.number().min(0),
 });
 
 export type CostReceipt = z.infer<typeof CostReceiptSchema>;
+
+export const VerificationResultSchema = z.object({
+  job_id: z.string().min(1).max(128),
+  candidate_sha: z.string().regex(/^[a-f0-9]{40}$/i),
+  outcome: z.enum(['passed', 'failed', 'cancelled', 'timed_out']),
+  original_failure_resolved: z.boolean(),
+  checks: z.array(z.object({
+    name: z.string().min(1).max(128),
+    outcome: z.enum(['passed', 'failed', 'skipped']),
+    duration_ms: z.number().int().min(0).max(86_400_000),
+  }).strict()).min(1).max(100),
+}).strict().superRefine((result, context) => {
+  if (result.outcome === 'passed' && !result.original_failure_resolved) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Passing verification must resolve the original failure' });
+  }
+  if (result.outcome === 'passed' && result.checks.some((check) => check.outcome !== 'passed')) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Passing verification requires every check to pass' });
+  }
+});
+
+export type VerificationResult = z.infer<typeof VerificationResultSchema>;
 
 /**
  * PR creation input

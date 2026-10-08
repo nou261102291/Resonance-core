@@ -138,6 +138,7 @@ export type GitHubWebhookPayload = z.infer<typeof GitHubWebhookPayloadSchema>;
  */
 export const FailureContextSchema = z.object({
   repository: z.object({
+    id: z.number().int().positive(),
     owner: z.string(),
     name: z.string(),
     fullName: z.string(),

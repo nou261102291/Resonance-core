@@ -1,10 +1,28 @@
+import { z } from 'zod';
 import { type TriageOutput } from '@resonance/shared/schemas';
 import { type SynthesisInput, type SynthesisOutput } from '@resonance/shared/schemas';
-type TokenUsage = {
+declare const TokenUsageSchema: z.ZodEffects<z.ZodObject<{
+    prompt_tokens: z.ZodNumber;
+    completion_tokens: z.ZodNumber;
+    total_tokens: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
-};
+}, {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+}>, {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+}, {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+}>;
+type TokenUsage = z.infer<typeof TokenUsageSchema>;
 export type TriageResult = TriageOutput & {
     _tokenUsage: TokenUsage;
 };
@@ -25,12 +43,12 @@ export declare class NebiusClient {
         primaryLanguage?: string;
         packageJson?: string;
         tsconfig?: string;
-    }): Promise<TriageResult>;
+    }, requestId?: string): Promise<TriageResult>;
     /**
      * Run synthesis with Nemotron 3 Ultra
      * Generates a unified diff patch from error context and research
      */
-    runSynthesis(errorLog: string, triageData: TriageOutput, researchSnippets: SynthesisInput['research']['snippets'], originalFileContent?: string): Promise<SynthesisOutput>;
+    runSynthesis(errorLog: string, triageData: TriageOutput, researchSnippets: SynthesisInput['research']['snippets'], originalFileContent?: string, requestId?: string): Promise<SynthesisOutput>;
     /**
      * Build system prompt for Nemotron Nano triage
      */
@@ -48,6 +66,8 @@ export declare class NebiusClient {
      */
     private buildSynthesisUserPrompt;
     private summarizePatch;
+    private validateTokenUsage;
+    private logModelUsage;
     /**
      * Calculate cost for a model call
      */

@@ -41,7 +41,6 @@ export declare const CostReceiptSchema: z.ZodObject<{
         cost_usd: number;
     }>;
     total_cost_usd: z.ZodNumber;
-    estimated_human_minutes_saved: z.ZodNumber;
 }, "strip", z.ZodTypeAny, {
     triage: {
         prompt_tokens: number;
@@ -56,7 +55,6 @@ export declare const CostReceiptSchema: z.ZodObject<{
         cost_usd: number;
     };
     total_cost_usd: number;
-    estimated_human_minutes_saved: number;
 }, {
     triage: {
         prompt_tokens: number;
@@ -71,9 +69,68 @@ export declare const CostReceiptSchema: z.ZodObject<{
         cost_usd: number;
     };
     total_cost_usd: number;
-    estimated_human_minutes_saved: number;
 }>;
 export type CostReceipt = z.infer<typeof CostReceiptSchema>;
+export declare const VerificationResultSchema: z.ZodEffects<z.ZodObject<{
+    job_id: z.ZodString;
+    candidate_sha: z.ZodString;
+    outcome: z.ZodEnum<["passed", "failed", "cancelled", "timed_out"]>;
+    original_failure_resolved: z.ZodBoolean;
+    checks: z.ZodArray<z.ZodObject<{
+        name: z.ZodString;
+        outcome: z.ZodEnum<["passed", "failed", "skipped"]>;
+        duration_ms: z.ZodNumber;
+    }, "strict", z.ZodTypeAny, {
+        name: string;
+        outcome: "skipped" | "passed" | "failed";
+        duration_ms: number;
+    }, {
+        name: string;
+        outcome: "skipped" | "passed" | "failed";
+        duration_ms: number;
+    }>, "many">;
+}, "strict", z.ZodTypeAny, {
+    job_id: string;
+    candidate_sha: string;
+    outcome: "cancelled" | "timed_out" | "passed" | "failed";
+    original_failure_resolved: boolean;
+    checks: {
+        name: string;
+        outcome: "skipped" | "passed" | "failed";
+        duration_ms: number;
+    }[];
+}, {
+    job_id: string;
+    candidate_sha: string;
+    outcome: "cancelled" | "timed_out" | "passed" | "failed";
+    original_failure_resolved: boolean;
+    checks: {
+        name: string;
+        outcome: "skipped" | "passed" | "failed";
+        duration_ms: number;
+    }[];
+}>, {
+    job_id: string;
+    candidate_sha: string;
+    outcome: "cancelled" | "timed_out" | "passed" | "failed";
+    original_failure_resolved: boolean;
+    checks: {
+        name: string;
+        outcome: "skipped" | "passed" | "failed";
+        duration_ms: number;
+    }[];
+}, {
+    job_id: string;
+    candidate_sha: string;
+    outcome: "cancelled" | "timed_out" | "passed" | "failed";
+    original_failure_resolved: boolean;
+    checks: {
+        name: string;
+        outcome: "skipped" | "passed" | "failed";
+        duration_ms: number;
+    }[];
+}>;
+export type VerificationResult = z.infer<typeof VerificationResultSchema>;
 /**
  * PR creation input
  */
@@ -513,7 +570,6 @@ export declare const FixPackageSchema: z.ZodObject<{
             cost_usd: number;
         }>;
         total_cost_usd: z.ZodNumber;
-        estimated_human_minutes_saved: z.ZodNumber;
     }, "strip", z.ZodTypeAny, {
         triage: {
             prompt_tokens: number;
@@ -528,7 +584,6 @@ export declare const FixPackageSchema: z.ZodObject<{
             cost_usd: number;
         };
         total_cost_usd: number;
-        estimated_human_minutes_saved: number;
     }, {
         triage: {
             prompt_tokens: number;
@@ -543,7 +598,6 @@ export declare const FixPackageSchema: z.ZodObject<{
             cost_usd: number;
         };
         total_cost_usd: number;
-        estimated_human_minutes_saved: number;
     }>;
     timestamp: z.ZodString;
 }, "strip", z.ZodTypeAny, {
@@ -606,7 +660,6 @@ export declare const FixPackageSchema: z.ZodObject<{
             cost_usd: number;
         };
         total_cost_usd: number;
-        estimated_human_minutes_saved: number;
     };
 }, {
     repository: {
@@ -668,7 +721,6 @@ export declare const FixPackageSchema: z.ZodObject<{
             cost_usd: number;
         };
         total_cost_usd: number;
-        estimated_human_minutes_saved: number;
     };
 }>;
 export type FixPackage = z.infer<typeof FixPackageSchema>;

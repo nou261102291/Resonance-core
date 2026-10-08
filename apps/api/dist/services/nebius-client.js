@@ -1,8 +1,14 @@
 import OpenAI from 'openai';
+import { z } from 'zod';
 import { config } from '../utils/config.js';
 import { createChildLogger } from '../utils/logger.js';
 import { TriageInputSchema, TriageOutputSchema } from '@resonance/shared/schemas';
 import { SynthesisInputSchema, SynthesisModelOutputSchema, SynthesisOutputSchema, } from '@resonance/shared/schemas';
+const TokenUsageSchema = z.object({
+    prompt_tokens: z.number().int().nonnegative(),
+    completion_tokens: z.number().int().nonnegative(),
+    total_tokens: z.number().int().nonnegative(),
+}).refine((usage) => usage.total_tokens === usage.prompt_tokens + usage.completion_tokens);
 const log = createChildLogger({ component: 'nebius-client' });
 /**
  * Nebius AI Studio client for Nemotron models
@@ -27,7 +33,7 @@ export class NebiusClient {
      * Run triage with Nemotron Nano
      * Returns structured JSON with error classification and risk assessment
      */
-    async runTriage(errorLog, repositoryContext) {
+    async runTriage(errorLog, repositoryContext, requestId) {
         const input = TriageInputSchema.safeParse({
             error_log: errorLog,
             ...(repositoryContext ? {
@@ -61,6 +67,8 @@ export class NebiusClient {
             max_tokens: 1024,
             response_format: { type: 'json_object' },
         });
+        const tokenUsage = this.validateTokenUsage(response.usage);
+        this.logModelUsage('triage', this.triageModel, tokenUsage, requestId);
         const content = response.choices[0]?.message?.content;
         if (!content) {
             throw new Error('Empty response from Nemotron Nano');
@@ -88,18 +96,14 @@ export class NebiusClient {
         }, 'Triage completed');
         return {
             ...result.data,
-            _tokenUsage: {
-                prompt_tokens: response.usage?.prompt_tokens ?? 0,
-                completion_tokens: response.usage?.completion_tokens ?? 0,
-                total_tokens: response.usage?.total_tokens ?? 0,
-            },
+            _tokenUsage: tokenUsage,
         };
     }
     /**
      * Run synthesis with Nemotron 3 Ultra
      * Generates a unified diff patch from error context and research
      */
-    async runSynthesis(errorLog, triageData, researchSnippets, originalFileContent) {
+    async runSynthesis(errorLog, triageData, researchSnippets, originalFileContent, requestId) {
         const input = SynthesisInputSchema.safeParse({
             error_log: errorLog,
             triage: triageData,
@@ -126,6 +130,8 @@ export class NebiusClient {
             max_tokens: 4096,
             response_format: { type: 'json_object' },
         });
+        const tokenUsage = this.validateTokenUsage(response.usage);
+        this.logModelUsage('synthesis', this.synthesisModel, tokenUsage, requestId);
         const content = response.choices[0]?.message?.content;
         if (!content) {
             throw new Error('Empty response from Nemotron 3 Ultra');
@@ -148,11 +154,7 @@ export class NebiusClient {
             ...modelOutput.data,
             files_changed: [patchSummary.file],
             lines_changed: patchSummary.linesChanged,
-            token_usage: {
-                prompt_tokens: response.usage?.prompt_tokens ?? 0,
-                completion_tokens: response.usage?.completion_tokens ?? 0,
-                total_tokens: response.usage?.total_tokens ?? 0,
-            },
+            token_usage: tokenUsage,
         });
         if (!result.success) {
             log.error({ issues: result.error.issues.map(({ code, path }) => ({ code, path })) }, 'Synthesis package failed schema validation');
@@ -243,6 +245,26 @@ Requirements:
             throw new Error('Synthesis patch contains no changes');
         }
         return { file, linesChanged };
+    }
+    validateTokenUsage(usage) {
+        const result = TokenUsageSchema.safeParse(usage);
+        if (!result.success) {
+            log.error('Nebius response omitted valid token usage; refusing uncosted output');
+            throw new Error('Nebius response did not include valid token usage');
+        }
+        return result.data;
+    }
+    logModelUsage(stage, model, usage, requestId) {
+        const costUsd = this.calculateCost(usage.prompt_tokens, usage.completion_tokens, stage);
+        log.info({
+            ...(requestId === undefined ? {} : { requestId }),
+            stage,
+            model,
+            promptTokens: usage.prompt_tokens,
+            completionTokens: usage.completion_tokens,
+            totalTokens: usage.total_tokens,
+            estimatedCostUsd: Number(costUsd.toFixed(9)),
+        }, 'Nebius model usage and estimated cost recorded');
     }
     /**
      * Calculate cost for a model call

@@ -13,6 +13,7 @@ export declare class PipelineOrchestrator {
         githubResult?: {
             prUrl?: string;
             prNumber?: number;
+            candidateSha: string;
             branchName: string;
             action: string;
         };

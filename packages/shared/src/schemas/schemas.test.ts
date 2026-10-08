@@ -1,10 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { FailureContextSchema } from './index.js';
+import { ApiReadinessSchema, DashboardHealthSchema, FailureContextSchema } from './index.js';
+
+describe('ApiReadinessSchema', () => {
+  it('accepts readiness checks and rejects unrecognized fields', () => {
+    const readiness = {
+      status: 'ready',
+      checks: { config: true, nebius: true, tavily: false, github: true },
+      timestamp: '2026-10-07T00:00:00.000Z',
+    };
+
+    expect(ApiReadinessSchema.safeParse(readiness).success).toBe(true);
+    expect(ApiReadinessSchema.safeParse({ ...readiness, secret: 'not allowed' }).success).toBe(false);
+    expect(DashboardHealthSchema.safeParse({ status: 'unavailable' }).success).toBe(true);
+  });
+});
 
 describe('FailureContextSchema', () => {
   it('accepts a complete sanitized failure context', () => {
     const parsed = FailureContextSchema.safeParse({
-      repository: { owner: 'octo-org', name: 'service', fullName: 'octo-org/service', installationId: 42 },
+      repository: { id: 123, owner: 'octo-org', name: 'service', fullName: 'octo-org/service', installationId: 42 },
       workflow: { id: 10, name: 'CI', runNumber: 3, runAttempt: 1 },
       commit: { sha: '0123456789abcdef', branch: 'main' },
       failure: {

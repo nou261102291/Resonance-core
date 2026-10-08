@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import { config as loadDotEnv } from 'dotenv';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+loadDotEnv({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../../.env') });
 const ConfigSchema = z.object({
     // Server
     port: z.coerce.number().default(3000),
@@ -44,16 +48,20 @@ const ConfigSchema = z.object({
         defaultPermissions: z.object({
             contents: z.literal('write'),
             pull_requests: z.literal('write'),
+            statuses: z.literal('write'),
             actions: z.literal('read'),
             metadata: z.literal('read'),
-            checks: z.literal('read'),
         }).default({
             contents: 'write',
             pull_requests: 'write',
+            statuses: 'write',
             actions: 'read',
             metadata: 'read',
-            checks: 'read',
         }),
+    }),
+    verification: z.object({
+        callbackSecret: z.string().min(32).optional(),
+        callbackToleranceSeconds: z.coerce.number().int().min(30).max(900).default(300),
     }),
     // Autonomy Configuration
     autonomy: z.object({
@@ -87,10 +95,9 @@ const ConfigSchema = z.object({
     }),
     // Cost Tracking
     costTracking: z.object({
-        enabled: z.boolean().default(true),
         rates: z.object({
-            nemotronNano: z.number().default(0.0001), // per 1K tokens
-            nemotronUltra: z.number().default(0.0005), // per 1K tokens
+            nemotronNano: z.coerce.number().finite().min(0).default(0.0001), // blended USD per 1K tokens
+            nemotronUltra: z.coerce.number().finite().min(0).default(0.0005), // blended USD per 1K tokens
         }),
     }),
     // Security
@@ -120,6 +127,14 @@ const ConfigSchema = z.object({
         level: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
         prettyPrint: z.boolean().default(true),
     }),
+}).superRefine((value, context) => {
+    if (value.env === 'production' && value.verification.callbackSecret === undefined) {
+        context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['verification', 'callbackSecret'],
+            message: 'VERIFICATION_CALLBACK_SECRET is required in production and must be at least 32 characters',
+        });
+    }
 });
 function loadConfig() {
     const rawConfig = {
@@ -152,6 +167,10 @@ function loadConfig() {
             clientId: process.env.GITHUB_CLIENT_ID,
             clientSecret: process.env.GITHUB_CLIENT_SECRET,
         },
+        verification: {
+            callbackSecret: process.env.VERIFICATION_CALLBACK_SECRET || undefined,
+            callbackToleranceSeconds: process.env.VERIFICATION_CALLBACK_TOLERANCE_SECONDS,
+        },
         autonomy: {
             defaultTier: process.env.DEFAULT_AUTONOMY_TIER,
             tier1RequiredPatterns: process.env.TIER1_REQUIRED_PATTERNS?.split(',').filter(Boolean),
@@ -170,7 +189,6 @@ function loadConfig() {
             },
         },
         costTracking: {
-            enabled: process.env.COST_TRACKING_ENABLED,
             rates: {
                 nemotronNano: process.env.COST_RATE_NEMOTRON_NANO,
                 nemotronUltra: process.env.COST_RATE_NEMOTRON_ULTRA,

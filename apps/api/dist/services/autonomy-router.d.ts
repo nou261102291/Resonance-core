@@ -46,9 +46,10 @@ export declare class AutonomyRouter {
     /**
      * Execute the fix based on autonomy decision
      */
-    executeFix(fixPackage: FixPackage, installationId: number): Promise<{
+    executeFix(fixPackage: FixPackage, installationId: number, repositoryId: number): Promise<{
         prUrl?: string;
         prNumber?: number;
+        candidateSha: string;
         branchName: string;
         action: AutonomyDecision['action'];
     }>;

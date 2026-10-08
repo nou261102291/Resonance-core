@@ -23,7 +23,7 @@ autonomy:
     - "**/terraform/**"
     - "**/infra/**"
 
-  # File patterns eligible for Tier 3 (Autopilot) — auto-merge allowed
+  # File patterns eligible for Tier 3 review PRs; auto-merge stays disabled until validation gates pass
   tier_3_allowed_patterns:
     - "*.eslintrc*"
     - "*.prettierrc*"
@@ -59,7 +59,8 @@ autonomy:
 # Cost tracking
 cost_tracking:
   enabled: true
-  # Approximate rates per 1K tokens (update from Nebius pricing)
+  # Approximate blended prompt + completion rates per 1K tokens (update from Nebius pricing)
+  # Receipts estimate model spend; Tavily search charges are excluded.
   rates_usd_per_1k:
     nemotron_nano: 0.0001
     nemotron_ultra: 0.0005
@@ -83,7 +84,7 @@ notifications:
     enabled: false
     webhook_url_env: "SLACK_WEBHOOK_URL"
     notify_on:
-      - tier_3_auto_merge
+      - tier_3_pr_created
       - tier_1_draft_pr
       - validation_failed
   github:

@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { z } from 'zod';
 import { config } from '../utils/config.js';
 import { createChildLogger } from '../utils/logger.js';
 import { TriageInputSchema, TriageOutputSchema, type TriageOutput } from '@resonance/shared/schemas';
@@ -10,7 +11,13 @@ import {
   type SynthesisOutput,
 } from '@resonance/shared/schemas';
 
-type TokenUsage = { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+const TokenUsageSchema = z.object({
+  prompt_tokens: z.number().int().nonnegative(),
+  completion_tokens: z.number().int().nonnegative(),
+  total_tokens: z.number().int().nonnegative(),
+}).refine((usage) => usage.total_tokens === usage.prompt_tokens + usage.completion_tokens);
+
+type TokenUsage = z.infer<typeof TokenUsageSchema>;
 export type TriageResult = TriageOutput & { _tokenUsage: TokenUsage };
 
 const log = createChildLogger({ component: 'nebius-client' });
@@ -42,7 +49,11 @@ export class NebiusClient {
    * Run triage with Nemotron Nano
    * Returns structured JSON with error classification and risk assessment
    */
-  async runTriage(errorLog: string, repositoryContext?: { primaryLanguage?: string; packageJson?: string; tsconfig?: string }): Promise<TriageResult> {
+  async runTriage(
+    errorLog: string,
+    repositoryContext?: { primaryLanguage?: string; packageJson?: string; tsconfig?: string },
+    requestId?: string,
+  ): Promise<TriageResult> {
     const input = TriageInputSchema.safeParse({
       error_log: errorLog,
       ...(repositoryContext ? {
@@ -79,6 +90,8 @@ export class NebiusClient {
       max_tokens: 1024,
       response_format: { type: 'json_object' },
     });
+    const tokenUsage = this.validateTokenUsage(response.usage);
+    this.logModelUsage('triage', this.triageModel, tokenUsage, requestId);
 
     const content = response.choices[0]?.message?.content;
     if (!content) {
@@ -110,11 +123,7 @@ export class NebiusClient {
 
     return {
       ...result.data,
-      _tokenUsage: {
-        prompt_tokens: response.usage?.prompt_tokens ?? 0,
-        completion_tokens: response.usage?.completion_tokens ?? 0,
-        total_tokens: response.usage?.total_tokens ?? 0,
-      },
+      _tokenUsage: tokenUsage,
     };
   }
 
@@ -126,7 +135,8 @@ export class NebiusClient {
     errorLog: string,
     triageData: TriageOutput,
     researchSnippets: SynthesisInput['research']['snippets'],
-    originalFileContent?: string
+    originalFileContent?: string,
+    requestId?: string,
   ): Promise<SynthesisOutput> {
     const input = SynthesisInputSchema.safeParse({
       error_log: errorLog,
@@ -157,6 +167,8 @@ export class NebiusClient {
       max_tokens: 4096,
       response_format: { type: 'json_object' },
     });
+    const tokenUsage = this.validateTokenUsage(response.usage);
+    this.logModelUsage('synthesis', this.synthesisModel, tokenUsage, requestId);
 
     const content = response.choices[0]?.message?.content;
     if (!content) {
@@ -182,11 +194,7 @@ export class NebiusClient {
       ...modelOutput.data,
       files_changed: [patchSummary.file],
       lines_changed: patchSummary.linesChanged,
-      token_usage: {
-        prompt_tokens: response.usage?.prompt_tokens ?? 0,
-        completion_tokens: response.usage?.completion_tokens ?? 0,
-        total_tokens: response.usage?.total_tokens ?? 0,
-      },
+      token_usage: tokenUsage,
     });
 
     if (!result.success) {
@@ -291,6 +299,33 @@ Requirements:
     }
 
     return { file, linesChanged };
+  }
+
+  private validateTokenUsage(usage: unknown): TokenUsage {
+    const result = TokenUsageSchema.safeParse(usage);
+    if (!result.success) {
+      log.error('Nebius response omitted valid token usage; refusing uncosted output');
+      throw new Error('Nebius response did not include valid token usage');
+    }
+    return result.data;
+  }
+
+  private logModelUsage(
+    stage: 'triage' | 'synthesis',
+    model: string,
+    usage: TokenUsage,
+    requestId?: string,
+  ): void {
+    const costUsd = this.calculateCost(usage.prompt_tokens, usage.completion_tokens, stage);
+    log.info({
+      ...(requestId === undefined ? {} : { requestId }),
+      stage,
+      model,
+      promptTokens: usage.prompt_tokens,
+      completionTokens: usage.completion_tokens,
+      totalTokens: usage.total_tokens,
+      estimatedCostUsd: Number(costUsd.toFixed(9)),
+    }, 'Nebius model usage and estimated cost recorded');
   }
 
   /**

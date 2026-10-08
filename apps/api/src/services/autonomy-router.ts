@@ -1,3 +1,4 @@
+import { applyPatch, parsePatch } from 'diff';
 import { githubClient } from './github-client.js';
 import { config } from '../utils/config.js';
 import { createChildLogger } from '../utils/logger.js';
@@ -97,15 +98,13 @@ export class AutonomyRouter {
     const actionMap: Record<AutonomyTier, AutonomyDecision['action']> = {
       'Tier 1: Guardian': 'create_draft_pr',
       'Tier 2: Co-Pilot': 'create_pr',
-      'Tier 3: Autopilot': 'push_to_dev',
+      'Tier 3: Autopilot': 'create_pr',
     };
 
-    const requiresHumanReview = tier === 'Tier 1: Guardian' || tier === 'Tier 2: Co-Pilot';
-    
     const labels: Record<AutonomyTier, string[]> = {
       'Tier 1: Guardian': ['do-not-merge', 'resonance:tier-1', 'needs-review'],
       'Tier 2: Co-Pilot': ['resonance:tier-2', 'needs-ci-validation'],
-      'Tier 3: Autopilot': ['resonance:tier-3', 'auto-merge-candidate'],
+      'Tier 3: Autopilot': ['resonance:tier-3', 'validation-required'],
     };
 
     return {
@@ -114,7 +113,7 @@ export class AutonomyRouter {
       risk_score: triage.risk_score,
       confidence_score: triage.confidence_score,
       action: actionMap[tier],
-      requires_human_review: requiresHumanReview,
+      requires_human_review: true,
       labels: labels[tier],
     };
   }
@@ -156,12 +155,9 @@ export class AutonomyRouter {
   ): CostReceipt {
     const rates = config.costTracking.rates;
 
-    const triageCost = ((triageTokens.prompt_tokens + triageTokens.completion_tokens) / 1000) * rates.nemotronNano;
-    const synthesisCost = ((synthesisTokens.prompt_tokens + synthesisTokens.completion_tokens) / 1000) * rates.nemotronUltra;
-    const totalCost = triageCost + synthesisCost;
-
-    // Estimate human time saved (rough heuristic)
-    const estimatedMinutes = Math.max(5, Math.round(totalCost * 10000)); // Very rough estimate
+    const triageCost = Number((((triageTokens.prompt_tokens + triageTokens.completion_tokens) / 1000) * rates.nemotronNano).toFixed(6));
+    const synthesisCost = Number((((synthesisTokens.prompt_tokens + synthesisTokens.completion_tokens) / 1000) * rates.nemotronUltra).toFixed(6));
+    const totalCost = Number((triageCost + synthesisCost).toFixed(6));
 
     return {
       triage: {
@@ -177,7 +173,6 @@ export class AutonomyRouter {
         cost_usd: Number(synthesisCost.toFixed(6)),
       },
       total_cost_usd: Number(totalCost.toFixed(6)),
-      estimated_human_minutes_saved: estimatedMinutes,
     };
   }
 
@@ -185,12 +180,15 @@ export class AutonomyRouter {
    * Format cost receipt for PR body
    */
   formatCostReceipt(receipt: CostReceipt): string {
-    return `### 🧾 Resonance Core Compute Receipt
+    const totalTokens = receipt.triage.prompt_tokens + receipt.triage.completion_tokens +
+      receipt.synthesis.prompt_tokens + receipt.synthesis.completion_tokens;
 
-- **Triage**: ${receipt.triage.model} (${receipt.triage.prompt_tokens + receipt.triage.completion_tokens} tokens) — $${receipt.triage.cost_usd.toFixed(6)}
-- **Synthesis**: ${receipt.synthesis.model} (${receipt.synthesis.prompt_tokens + receipt.synthesis.completion_tokens} tokens) — $${receipt.synthesis.cost_usd.toFixed(6)}
-- **Total API Cost**: $${receipt.total_cost_usd.toFixed(6)}
-- **Est. Human Time Saved**: ~${receipt.estimated_human_minutes_saved} minutes`;
+    return `### Resonance Core Model Cost Receipt
+
+- **Triage**: ${receipt.triage.model} — ${receipt.triage.prompt_tokens} prompt / ${receipt.triage.completion_tokens} completion tokens — $${receipt.triage.cost_usd.toFixed(6)}
+- **Synthesis**: ${receipt.synthesis.model} — ${receipt.synthesis.prompt_tokens} prompt / ${receipt.synthesis.completion_tokens} completion tokens — $${receipt.synthesis.cost_usd.toFixed(6)}
+- **Total Nebius model cost**: $${receipt.total_cost_usd.toFixed(6)} across ${totalTokens} tokens
+- *Estimated using configured blended USD-per-1K-token rates; Tavily search charges are excluded.*`;
   }
 
   /**
@@ -214,6 +212,8 @@ export class AutonomyRouter {
 **Risk Score**: ${decision.risk_score}/10  
 **Confidence**: ${decision.confidence_score}/10  
 **Action**: ${decision.action.replace('_', ' ')}
+**Review**: ${decision.requires_human_review ? 'Human review required' : 'Not required'}<br>
+**Validation**: Pending; auto-merge remains disabled until verification passes.
 
 ---
 
@@ -262,9 +262,10 @@ ${this.formatCostReceipt(costReceipt)}
   /**
    * Execute the fix based on autonomy decision
    */
-  async executeFix(fixPackage: FixPackage, installationId: number): Promise<{
+  async executeFix(fixPackage: FixPackage, installationId: number, repositoryId: number): Promise<{
     prUrl?: string;
     prNumber?: number;
+    candidateSha: string;
     branchName: string;
     action: AutonomyDecision['action'];
   }> {
@@ -278,9 +279,24 @@ ${this.formatCostReceipt(costReceipt)}
       action: decision.action 
     }, 'Executing fix');
 
-    const octokit = await githubClient.getInstallationOctokit(installationId);
+    const expectedAction: Record<AutonomyTier, AutonomyDecision['action']> = {
+      'Tier 1: Guardian': 'create_draft_pr',
+      'Tier 2: Co-Pilot': 'create_pr',
+      'Tier 3: Autopilot': 'create_pr',
+    };
+    if (decision.action !== expectedAction[decision.tier]) {
+      throw new Error(`Action ${decision.action} is not permitted for ${decision.tier}`);
+    }
+
+    const octokit = await githubClient.getInstallationOctokit(installationId, repositoryId);
     const defaultBranch = await githubClient.getDefaultBranch(octokit, owner, repo);
     const baseSha = await githubClient.getBranchHeadSha(octokit, owner, repo, defaultBranch);
+    const baseTreeSha = await githubClient.getCommitTreeSha(octokit, owner, repo, baseSha);
+    const originalFile = await githubClient.getFileContent(octokit, owner, repo, triage.affected_file, baseSha);
+    if (originalFile === null) {
+      throw new Error(`Cannot apply patch: ${triage.affected_file} does not exist at the base commit`);
+    }
+    const treeItems = this.parsePatchToTreeItems(synthesis.patch, triage.affected_file, originalFile);
 
     // Create branch name
     const timestamp = Date.now();
@@ -295,15 +311,12 @@ ${this.formatCostReceipt(costReceipt)}
       base_sha: baseSha,
     });
 
-    // Parse patch to create tree items
-    const treeItems = this.parsePatchToTreeItems(synthesis.patch, triage.affected_file);
-    
     // Create tree
     const treeSha = await githubClient.createTree(octokit, {
       owner,
       repo,
       tree: treeItems,
-      base_tree: baseSha,
+      base_tree: baseTreeSha,
     });
 
     // Create commit
@@ -329,11 +342,14 @@ ${this.formatCostReceipt(costReceipt)}
 
     if (decision.action === 'create_draft_pr' || decision.action === 'create_pr') {
       const isDraft = decision.action === 'create_draft_pr';
+      const targetBranch = decision.tier === 'Tier 3: Autopilot'
+        ? await this.getTargetBranch(octokit, owner, repo, defaultBranch)
+        : defaultBranch;
       
       const prResult = await githubClient.createPullRequest(octokit, {
         owner,
         repo,
-        base_branch: defaultBranch,
+        base_branch: targetBranch,
         head_branch: branchName,
         title: `[Resonance] ${synthesis.fix_explanation}`,
         body: this.generatePRBody(fixPackage, decision, fixPackage.cost_receipt),
@@ -344,45 +360,32 @@ ${this.formatCostReceipt(costReceipt)}
       prUrl = prResult.html_url;
       prNumber = prResult.number;
 
-      log.info({ prUrl, prNumber, draft: isDraft }, 'Pull request created');
-    } else if (decision.action === 'push_to_dev') {
-      // For Tier 3, push to dev branch (or default if no dev)
-      const targetBranch = await this.getTargetBranch(octokit, owner, repo, defaultBranch);
-      
-      if (targetBranch !== defaultBranch) {
-        // Create PR to dev branch for auto-merge
-        const prResult = await githubClient.createPullRequest(octokit, {
+      try {
+        await githubClient.createCommitStatus(octokit, {
           owner,
           repo,
-          base_branch: targetBranch,
-          head_branch: branchName,
-          title: `[Resonance] ${synthesis.fix_explanation}`,
-          body: this.generatePRBody(fixPackage, decision, fixPackage.cost_receipt),
-          draft: false,
-          labels: decision.labels,
+          sha: commitSha,
+          state: 'pending',
+          context: 'resonance/patch-validation',
+          description: 'Pull request opened; candidate validation is pending',
+          target_url: prResult.html_url,
         });
-
-        // Enable auto-merge if configured
+      } catch (error) {
         try {
-          await octokit.rest.pulls.update({
-            owner,
-            repo,
-            pull_number: prResult.number,
-            merge_method: 'squash',
-          });
-          // Note: Actual auto-merge requires GitHub App permissions and branch protection rules
-        } catch (e) {
-          log.warn({ err: e }, 'Could not enable auto-merge');
+          await githubClient.closePullRequest(octokit, owner, repo, prResult.number);
+        } catch {
+          log.error({ owner, repo, prNumber: prResult.number }, 'Could not close PR after pending validation status failed');
         }
-
-        prUrl = prResult.html_url;
-        prNumber = prResult.number;
+        throw error;
       }
+
+      log.info({ prUrl, prNumber, draft: isDraft }, 'Pull request created');
     }
 
     return {
       ...(prUrl === undefined ? {} : { prUrl }),
       ...(prNumber === undefined ? {} : { prNumber }),
+      candidateSha: commitSha,
       branchName,
       action: decision.action,
     };
@@ -391,46 +394,32 @@ ${this.formatCostReceipt(costReceipt)}
   /**
    * Parse unified diff into tree items for GitHub API
    */
-  private parsePatchToTreeItems(patch: string, affectedFile: string): TreeItem[] {
-    // This is a simplified parser - in production, use a proper diff parser
-    // For now, we'll get the file content from the patch
-    const lines = patch.split('\n');
-    const fileLines: string[] = [];
-    let inTargetFile = false;
-
-    for (const line of lines) {
-      if (line.startsWith('+++') && line.includes(affectedFile)) {
-        inTargetFile = true;
-        continue;
-      }
-      if (line.startsWith('---')) {
-        inTargetFile = false;
-        continue;
-      }
-      if (inTargetFile && !line.startsWith('@@')) {
-        // Remove diff markers
-        if (line.startsWith('+')) {
-          fileLines.push(line.substring(1));
-        } else if (!line.startsWith('-')) {
-          fileLines.push(line);
-        }
-      }
+  private parsePatchToTreeItems(patch: string, affectedFile: string, originalContent: string): TreeItem[] {
+    const parsedPatches = parsePatch(patch);
+    const filePatch = parsedPatches[0];
+    const oldFile = filePatch?.oldFileName?.replace(/^[ab]\//, '');
+    const newFile = filePatch?.newFileName?.replace(/^[ab]\//, '');
+    if (filePatch === undefined || parsedPatches.length !== 1 || oldFile !== affectedFile || newFile !== affectedFile) {
+      throw new Error('Patch must modify only the triaged file');
     }
 
-    // If we couldn't parse, return empty - the actual implementation would fetch the file
-    // and apply the patch properly
+    const updatedContent = applyPatch(originalContent, filePatch);
+    if (updatedContent === false) {
+      throw new Error(`Patch could not be applied to ${affectedFile} at the base commit`);
+    }
+
     return [{
       path: affectedFile,
       mode: '100644',
       type: 'blob' as const,
-      content: fileLines.join('\n') || '// Patch applied by Resonance Core',
+      content: updatedContent,
     }];
   }
 
   /**
    * Get target branch for Tier 3 auto-merge
    */
-  private async getTargetBranch(octokit: any, owner: string, repo: string, defaultBranch: string): Promise<string> {
+  private async getTargetBranch(octokit: import('@octokit/rest').Octokit, owner: string, repo: string, defaultBranch: string): Promise<string> {
     // Check if 'dev' branch exists
     const devExists = await githubClient.branchExists(octokit, owner, repo, 'dev');
     return devExists ? 'dev' : defaultBranch;

@@ -1269,16 +1269,19 @@ export type GitHubWebhookPayload = z.infer<typeof GitHubWebhookPayloadSchema>;
  */
 export declare const FailureContextSchema: z.ZodObject<{
     repository: z.ZodObject<{
+        id: z.ZodNumber;
         owner: z.ZodString;
         name: z.ZodString;
         fullName: z.ZodString;
         installationId: z.ZodOptional<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
+        id: number;
         name: string;
         owner: string;
         fullName: string;
         installationId?: number | undefined;
     }, {
+        id: number;
         name: string;
         owner: string;
         fullName: string;
@@ -1335,6 +1338,7 @@ export declare const FailureContextSchema: z.ZodObject<{
         errorLog: string;
     };
     repository: {
+        id: number;
         name: string;
         owner: string;
         fullName: string;
@@ -1359,6 +1363,7 @@ export declare const FailureContextSchema: z.ZodObject<{
         errorLog: string;
     };
     repository: {
+        id: number;
         name: string;
         owner: string;
         fullName: string;

@@ -22,6 +22,18 @@
 - Sanitize logs before any external call (AWS keys, JWTs, DB URLs, Bearer tokens)
 - GitHub App uses installation tokens, scoped to installed repos only
 - No long-lived personal access tokens in codebase
+- Request only the GitHub App permissions used by the enabled workflow; fail closed when an installation lacks them
+
+## Architecture and DevOps
+- Keep orchestration, provider adapters, policy decisions, and transport handlers in separate ownership boundaries
+- Make trust boundaries and failure behavior explicit; external data and model output are untrusted until schema-validated
+- Prefer idempotent operations, bounded retries/timeouts, structured correlation IDs, and actionable health signals
+- Ship changes behind automated typecheck, lint, test, and build gates; mock external providers in unit tests
+- Treat staging validation, rollback behavior, and operational ownership as release requirements, not post-launch cleanup
+- Never enable repository-controlled execution or autonomous promotion without the isolation and verification gates in the implementation guide
+- Require validated provider token usage for model calls; never synthesize zero-cost defaults when usage is missing
+- Emit request-correlated model, input/output token, and estimated-cost telemetry without logging prompts or credentials
+- Label configured token-rate calculations as estimates and disclose external provider charges excluded from each receipt
 
 ## UI/UX
 - Dark mode first (`#0D1117` background)

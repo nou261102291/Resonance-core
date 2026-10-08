@@ -17,7 +17,7 @@ const log = createChildLogger({ component: 'github-client' });
  */
 export class GitHubClient {
   private appOctokit: Octokit;
-  private installationTokens: Map<number, { token: string; expiresAt: Date }> = new Map();
+  private installationTokens: Map<string, { token: string; expiresAt: Date }> = new Map();
 
   constructor() {
     // App-level client for getting installation tokens
@@ -35,9 +35,10 @@ export class GitHubClient {
   /**
    * Get installation token for a repository
    */
-  async getInstallationToken(installationId: number): Promise<string> {
+  async getInstallationToken(installationId: number, repositoryId: number): Promise<string> {
+    const cacheKey = `${installationId}:${repositoryId}`;
     // Check cache
-    const cached = this.installationTokens.get(installationId);
+    const cached = this.installationTokens.get(cacheKey);
     if (cached && cached.expiresAt > new Date()) {
       return cached.token;
     }
@@ -46,13 +47,14 @@ export class GitHubClient {
 
     const { data } = await this.appOctokit.rest.apps.createInstallationAccessToken({
       installation_id: installationId,
+      repository_ids: [repositoryId],
       permissions: config.github.defaultPermissions,
     });
 
     const token = data.token;
     const expiresAt = new Date(data.expires_at);
 
-    this.installationTokens.set(installationId, { token, expiresAt });
+    this.installationTokens.set(cacheKey, { token, expiresAt });
 
     log.debug({ installationId, expiresAt }, 'Installation token cached');
     return token;
@@ -61,8 +63,8 @@ export class GitHubClient {
   /**
    * Get Octokit client authenticated for a specific installation
    */
-  async getInstallationOctokit(installationId: number): Promise<Octokit> {
-    const token = await this.getInstallationToken(installationId);
+  async getInstallationOctokit(installationId: number, repositoryId: number): Promise<Octokit> {
+    const token = await this.getInstallationToken(installationId, repositoryId);
     return new Octokit({ auth: token });
   }
 
@@ -235,6 +237,73 @@ export class GitHubClient {
       ref: `heads/${branch}`,
     });
     return data.object.sha;
+  }
+
+  async getCommitTreeSha(octokit: Octokit, owner: string, repo: string, commitSha: string): Promise<string> {
+    const { data } = await octokit.rest.git.getCommit({
+      owner,
+      repo,
+      commit_sha: commitSha,
+    });
+    return data.tree.sha;
+  }
+
+  async createCommitStatus(
+    octokit: Octokit,
+    options: {
+      owner: string;
+      repo: string;
+      sha: string;
+      state: 'error' | 'failure' | 'pending' | 'success';
+      description: string;
+      context: string;
+      target_url?: string;
+    }
+  ): Promise<void> {
+    await octokit.rest.repos.createCommitStatus(options);
+  }
+
+  async getPullRequestSnapshot(
+    octokit: Octokit,
+    owner: string,
+    repo: string,
+    pullNumber: number,
+  ): Promise<{ headSha: string; state: 'open' | 'closed' }> {
+    const { data } = await octokit.rest.pulls.get({
+      owner,
+      repo,
+      pull_number: pullNumber,
+    });
+    return { headSha: data.head.sha, state: data.state };
+  }
+
+  async getCommitStatusState(
+    octokit: Octokit,
+    owner: string,
+    repo: string,
+    sha: string,
+    context: string,
+  ): Promise<'error' | 'failure' | 'pending' | 'success' | undefined> {
+    const { data } = await octokit.rest.repos.listCommitStatusesForRef({
+      owner,
+      repo,
+      ref: sha,
+      per_page: 100,
+    });
+    const state = data.find((status) => status.context === context)?.state;
+    if (state === 'error' || state === 'failure' || state === 'pending' || state === 'success') {
+      return state;
+    }
+    return undefined;
+  }
+
+  async closePullRequest(octokit: Octokit, owner: string, repo: string, pullNumber: number): Promise<void> {
+    await octokit.rest.pulls.update({
+      owner,
+      repo,
+      pull_number: pullNumber,
+      state: 'closed',
+    });
   }
 
   /**

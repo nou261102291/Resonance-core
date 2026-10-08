@@ -23,28 +23,30 @@ export class GitHubClient {
     /**
      * Get installation token for a repository
      */
-    async getInstallationToken(installationId) {
+    async getInstallationToken(installationId, repositoryId) {
+        const cacheKey = `${installationId}:${repositoryId}`;
         // Check cache
-        const cached = this.installationTokens.get(installationId);
+        const cached = this.installationTokens.get(cacheKey);
         if (cached && cached.expiresAt > new Date()) {
             return cached.token;
         }
         log.debug({ installationId }, 'Fetching installation token');
         const { data } = await this.appOctokit.rest.apps.createInstallationAccessToken({
             installation_id: installationId,
+            repository_ids: [repositoryId],
             permissions: config.github.defaultPermissions,
         });
         const token = data.token;
         const expiresAt = new Date(data.expires_at);
-        this.installationTokens.set(installationId, { token, expiresAt });
+        this.installationTokens.set(cacheKey, { token, expiresAt });
         log.debug({ installationId, expiresAt }, 'Installation token cached');
         return token;
     }
     /**
      * Get Octokit client authenticated for a specific installation
      */
-    async getInstallationOctokit(installationId) {
-        const token = await this.getInstallationToken(installationId);
+    async getInstallationOctokit(installationId, repositoryId) {
+        const token = await this.getInstallationToken(installationId, repositoryId);
         return new Octokit({ auth: token });
     }
     /**
@@ -201,6 +203,46 @@ export class GitHubClient {
             ref: `heads/${branch}`,
         });
         return data.object.sha;
+    }
+    async getCommitTreeSha(octokit, owner, repo, commitSha) {
+        const { data } = await octokit.rest.git.getCommit({
+            owner,
+            repo,
+            commit_sha: commitSha,
+        });
+        return data.tree.sha;
+    }
+    async createCommitStatus(octokit, options) {
+        await octokit.rest.repos.createCommitStatus(options);
+    }
+    async getPullRequestSnapshot(octokit, owner, repo, pullNumber) {
+        const { data } = await octokit.rest.pulls.get({
+            owner,
+            repo,
+            pull_number: pullNumber,
+        });
+        return { headSha: data.head.sha, state: data.state };
+    }
+    async getCommitStatusState(octokit, owner, repo, sha, context) {
+        const { data } = await octokit.rest.repos.listCommitStatusesForRef({
+            owner,
+            repo,
+            ref: sha,
+            per_page: 100,
+        });
+        const state = data.find((status) => status.context === context)?.state;
+        if (state === 'error' || state === 'failure' || state === 'pending' || state === 'success') {
+            return state;
+        }
+        return undefined;
+    }
+    async closePullRequest(octokit, owner, repo, pullNumber) {
+        await octokit.rest.pulls.update({
+            owner,
+            repo,
+            pull_number: pullNumber,
+            state: 'closed',
+        });
     }
     /**
      * Check if a branch exists

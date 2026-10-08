@@ -86,6 +86,15 @@ describe('NebiusClient triage boundary', () => {
     await expect(new NebiusClient().runTriage('Build failed')).rejects.toThrow('Nemotron Nano output validation failed');
   });
 
+  it('rejects a provider response without valid token usage instead of recording zero cost', async () => {
+    createCompletion.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify(validTriage) } }],
+    });
+
+    await expect(new NebiusClient().runTriage('Build failed'))
+      .rejects.toThrow('Nebius response did not include valid token usage');
+  });
+
   it('rejects oversized triage input before making a provider call', async () => {
     await expect(new NebiusClient().runTriage('x'.repeat(50001))).rejects.toThrow('Triage input validation failed');
     await expect(new NebiusClient().runTriage('Build failed', { packageJson: 'x'.repeat(20001) }))
